@@ -1,4 +1,4 @@
-// Copyright 2020 Authors of Cilium
+// Copyright 2020-2021 Authors of Cilium
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path"
 	"reflect"
 	"strings"
@@ -38,12 +39,18 @@ import (
 	"github.com/cilium/cilium/pkg/types"
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
+	. "gopkg.in/check.v1"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
+
+// Hook up gocheck into the "go test" runner.
+type BpfProgTestSuite struct{}
+
+var _ = Suite(&BpfProgTestSuite{})
 
 type ct4GlobalMap map[ctmap.CtKey4Global]ctmap.CtEntry
 
@@ -449,9 +456,22 @@ func testCt4Rst(spec *ebpf.Collection) error {
 // TestCt checks connection tracking
 func TestCt(t *testing.T) {
 
-	objDir := ".."
-	fname := path.Join(objDir, "bpf_ct_tests.o")
-	fnamePatched := path.Join(objDir, "bpf_ct_tests_patched.o")
+	objName := "bpf_ct_tests.o"
+	bpfTestDir := ".."
+	bpfDir := "../.."
+	fname := path.Join(bpfTestDir, objName)
+	if _, err := os.Stat(fname); os.IsNotExist(err) {
+		log.WithFields(log.Fields{
+			"fname": fname,
+		}).Info("Object file not found. Attempting to buid it")
+		cmd := exec.Command("make", "-C", bpfDir, path.Join("tests", objName))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.WithError(err).Warnf("failed to build object file:\n%s\n", out)
+		}
+	}
+
+	fnamePatched := path.Join(bpfTestDir, "bpf_ct_tests_patched.o")
 	err := patchElf(fname, fnamePatched)
 	if err != nil {
 		t.Fatal(err)
