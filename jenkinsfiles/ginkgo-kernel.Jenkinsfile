@@ -108,25 +108,6 @@ pipeline {
                 }
             }
         }
-        stage('Make Cilium images') {
-            environment {
-                TESTDIR="${WORKSPACE}/${PROJ_PATH}/test"
-            }
-            steps {
-                retry(3){
-                    sh 'cd ${TESTDIR}; ./make-images-push-to-local-registry.sh $(./print-node-ip.sh) latest'
-                }
-            }
-            post {
-                unsuccessful {
-                    script {
-                        if  (!currentBuild.displayName.contains('fail')) {
-                            currentBuild.displayName = 'building or pushing Cilium images failed ' + currentBuild.displayName
-                        }
-                    }
-                }
-            }
-        }
         stage('Preload vagrant boxes') {
             steps {
                 sh '/usr/local/bin/add_vagrant_box ${WORKSPACE}/${PROJ_PATH}/vagrant_box_defaults.rb'
@@ -193,6 +174,19 @@ pipeline {
                 }
             }
         }
+        stage ("Wait for images") {
+            options {
+                timeout(time: 10, unit: 'MINUTES')
+            }
+            steps {
+                retry(15) {
+                    sleep(time: 60)
+                    sh 'curl --silent -f -lSL "https://quay.io/api/v1/repository/cilium/cilium-ci/tag/${ghprbActualCommit}/images"'
+                    sh 'curl --silent -f -lSL "https://quay.io/api/v1/repository/cilium/cilium-operator-ci/tag/${ghprbActualCommit}/images"'
+                    sh 'curl --silent -f -lSL "https://quay.io/api/v1/repository/cilium/hubble-relay/tag/${ghprbActualCommit}/images"'
+                }
+            }
+        }
         stage ("BDD-Test-PR"){
             options {
                 timeout(time: 180, unit: 'MINUTES')
@@ -225,21 +219,12 @@ pipeline {
                     returnStdout: true,
                     script: 'if [ "${KERNEL}" = "net-next" ] || [ "${KERNEL}" = "419" ]; then echo -n "0"; else echo -n ""; fi'
                     )}"""
-                CILIUM_IMAGE = """${sh(
-                        returnStdout: true,
-                        script: 'echo -n $(${TESTDIR}/print-node-ip.sh)/cilium/cilium'
-                        )}"""
-                CILIUM_TAG = "latest"
-                CILIUM_OPERATOR_IMAGE= """${sh(
-                        returnStdout: true,
-                        script: 'echo -n $(${TESTDIR}/print-node-ip.sh)/cilium/operator'
-                        )}"""
-                CILIUM_OPERATOR_TAG = "latest"
-                HUBBLE_RELAY_IMAGE= """${sh(
-                        returnStdout: true,
-                        script: 'echo -n $(${TESTDIR}/print-node-ip.sh)/cilium/hubble-relay'
-                        )}"""
-                HUBBLE_RELAY_TAG = "latest"
+                CILIUM_IMAGE = "quay.io/cilium/cilium-ci"
+                CILIUM_TAG = "${ghprbActualCommit}"
+                CILIUM_OPERATOR_IMAGE= "quay.io/cilium/cilium-operator-ci"
+                CILIUM_OPERATOR_TAG = "${ghprbActualCommit}"
+                HUBBLE_RELAY_IMAGE= "quay.io/cilium/hubble-relay-ci"
+                HUBBLE_RELAY_TAG = "${ghprbActualCommit}"
             }
             steps {
                 sh 'env'
